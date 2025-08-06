@@ -1,8 +1,7 @@
-from simple_tcp_server import SimpleTCPServer
+from redis_server import RedisServer
 
 def main():
-    server = SimpleTCPServer()
-    
+    server = RedisServer()
     try:
         server.start()
     except KeyboardInterrupt:
