@@ -21,7 +21,7 @@ class RedisServer:
         self.server_socket.setblocking(False)
         self.running = True
         
-        print(f"Redis server listening on {self.host}:{self.port}")
+        print(f"Redis-style server listening on {self.host}:{self.port}")
         self._event_loop()
 
     def _event_loop(self):

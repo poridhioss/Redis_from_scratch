@@ -1,4 +1,4 @@
-from .storage import Storage
+from .storage import DataStore
 from .response import *
 
 class CommandHandler:
