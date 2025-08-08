@@ -16,8 +16,8 @@ class CommandHandler:
             "INFO": self.info
         }
 
-    def execute(self, command, *args):
-        cmd = self.commands.get(command.upper())
+    def execute(self, command, *args): # execute("SET", "mykey", "myvalue"), args = ("mykey", "myvalue")
+        cmd = self.commands.get(command.upper()) # get the command function
         if cmd:
             return cmd(*args)
         return error(f"unknown command '{command}'")
