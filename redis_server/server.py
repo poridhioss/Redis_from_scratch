@@ -37,9 +37,9 @@ class RedisServer:
                 )
                 
                 for sock in read:
-                    if sock is self.server_socket:
+                    if sock is self.server_socket: # if sock is the server socket, then accept a new client
                         self._accept_client()
-                    else:
+                    else: # if sock is a client socket, then handle the client
                         self._handle_client(sock)
                 
                 # Perform background cleanup every 100ms

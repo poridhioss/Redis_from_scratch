@@ -38,6 +38,14 @@ class DataStore:
     def exists(self, *keys):
         return sum(1 for key in keys if self._is_key_valid(key))
 
+
+    """
+    Pattern matching for keys: fnmatch.fnmatch for Unix shell-style wildcard matching
+    * matches any characters
+    ? matches a single character
+    [abc] matches any character in the brackets
+    """
+
     def keys(self, pattern="*"):
         valid_keys = [key for key in self._data.keys() if self._is_key_valid(key)]
         if pattern == "*":

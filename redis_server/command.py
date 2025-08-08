@@ -85,7 +85,7 @@ class CommandHandler:
 
     def expire(self, *args):
         if len(args) != 2:
-            return error("wrong number of arguments for 'expire' command")
+            return error("Wrong number of arguments for 'expire' command")
         
         key = args[0]
         try:
@@ -116,6 +116,12 @@ class CommandHandler:
             return error("wrong number of arguments for 'ttl' command")
         
         ttl_value = self.storage.ttl(args[0])
+
+        if ttl_value == -1:
+            return simple_string(f"No expiration set for key: {args[0]}")
+        elif ttl_value == -2:
+            return simple_string(f"Key has expired: {args[0]}")
+        # Return TTL as an integer
         return integer(ttl_value)
 
     def pttl(self, *args):
@@ -123,6 +129,11 @@ class CommandHandler:
             return error("wrong number of arguments for 'pttl' command")
         
         pttl_value = self.storage.pttl(args[0])
+        if pttl_value == "-1":
+            return simple_string(f"No expiration set for key: {args[0]}")
+        elif pttl_value == "-2":
+            return simple_string(f"Key has expired: {args[0]}")
+        # Return PTTL as an integer
         return integer(pttl_value)
 
     def persist(self, *args):
