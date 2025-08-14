@@ -88,7 +88,7 @@ class RDBHandler:
         """
         try:
             # For this implementation, we'll use threading instead of subprocess
-            # In production, Redis uses fork() which isn't available on Windows
+            # In production, Redis uses fork()
             def background_save():
                 success = self.create_snapshot(data_store)
                 if success:
@@ -132,7 +132,6 @@ class RDBHandler:
             'keys': {},
             'metadata': {
                 'created_time': time.time(),
-                'redis_version': '7.0.0-custom',
                 'key_count': 0
             }
         }
@@ -165,7 +164,7 @@ class RDBHandler:
             Binary representation of data
         """
         try:
-            # Create RDB header
+            # Create RDB header: MAGIC_STRING = b'REDIS' + VERSION = b'0001'
             header = self.MAGIC_STRING + self.VERSION
             
             # Serialize data using pickle
