@@ -1,37 +1,31 @@
 """
 Data Recovery Management
 
-Handles loading data from persistence files on server startup.
+Handles loading data from AOF files on server startup.
 """
 
 import os
 import time
 from typing import Optional, Dict
 from .aof import AOFWriter
-from .rdb import RDBHandler
 
 
 class RecoveryManager:
-    """Manages data recovery from AOF and RDB files"""
+    """Manages data recovery from AOF files"""
     
-    def __init__(self, aof_filename: str, rdb_filename: str):
+    def __init__(self, aof_filename: str):
         """
         Initialize recovery manager
         
         Args:
             aof_filename: Path to AOF file
-            rdb_filename: Path to RDB file
         """
         self.aof_filename = aof_filename
-        self.rdb_filename = rdb_filename
         self.aof_handler = None
-        self.rdb_handler = None
     
     def recover_data(self, data_store, command_handler=None) -> bool:
         """
-        Recover data from persistence files
-        
-        Priority: AOF takes precedence over RDB if both exist
+        Recover data from AOF file
         
         Args:
             data_store: Data store to populate
@@ -41,72 +35,19 @@ class RecoveryManager:
             True if data was successfully recovered
         """
         try:
-            # Check which persistence files exist
+            # Check if AOF file exists
             aof_exists = os.path.exists(self.aof_filename)
-            rdb_exists = os.path.exists(self.rdb_filename)
             
-            if not aof_exists and not rdb_exists:
-                print("No persistence files found, starting with empty database")
+            if not aof_exists:
+                print("No AOF file found, starting with empty database")
                 return True
             
-            # AOF takes precedence over RDB
-            if aof_exists:
-                print(f"Loading data from AOF file: {self.aof_filename}")
-                return self._replay_aof(data_store, command_handler)
-            elif rdb_exists:
-                print(f"Loading data from RDB file: {self.rdb_filename}")
-                return self._load_from_rdb(data_store)
-            
-            return False
+            print(f"Loading data from AOF file: {self.aof_filename}")
+            return self._replay_aof(data_store, command_handler)
             
         except Exception as e:
             print(f"Error during data recovery: {e}")
             return self._handle_corruption(e)
-    
-    def _load_from_rdb(self, data_store) -> bool:
-        """
-        Load data from RDB file
-        
-        Args:
-            data_store: Data store to populate
-            
-        Returns:
-            True if successful
-        """
-        try:
-            rdb_handler = RDBHandler(self.rdb_filename)
-            rdb_data = rdb_handler.load_snapshot()
-            
-            if rdb_data is None:
-                print("No data found in RDB file")
-                return False
-            
-            # Clear existing data
-            data_store.flush()
-            
-            # Load keys from RDB data
-            keys_data = rdb_data.get('keys', {})
-            current_time = time.time()
-            loaded_keys = 0
-            
-            for key, key_data in keys_data.items():
-                value = key_data.get('value')
-                expiry_time = key_data.get('expiry_time')
-                
-                # Skip expired keys
-                if expiry_time and expiry_time <= current_time:
-                    continue
-                
-                # Set the key-value pair
-                data_store.set(key, value, expiry_time)
-                loaded_keys += 1
-            
-            print(f"Loaded {loaded_keys} keys from RDB file")
-            return True
-            
-        except Exception as e:
-            print(f"Error loading RDB file: {e}")
-            return False
     
     def _replay_aof(self, data_store, command_handler) -> bool:
         """
@@ -224,16 +165,14 @@ class RecoveryManager:
     
     def validate_files(self) -> Dict[str, bool]:
         """
-        Validate persistence files without loading them
+        Validate AOF file without loading it
         
         Returns:
             Dictionary with validation results
         """
         results = {
             'aof_exists': os.path.exists(self.aof_filename),
-            'rdb_exists': os.path.exists(self.rdb_filename),
-            'aof_valid': False,
-            'rdb_valid': False
+            'aof_valid': False
         }
         
         # Validate AOF file
@@ -255,15 +194,5 @@ class RecoveryManager:
                         results['aof_valid'] = True
             except Exception:
                 results['aof_valid'] = False
-        
-        # Validate RDB file
-        if results['rdb_exists']:
-            try:
-                with open(self.rdb_filename, 'rb') as f:
-                    header = f.read(9)  # REDIS + version
-                    if header.startswith(b'REDIS'):
-                        results['rdb_valid'] = True
-            except Exception:
-                results['rdb_valid'] = False
         
         return results

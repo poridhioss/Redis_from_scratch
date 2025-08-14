@@ -24,10 +24,7 @@ class CommandHandler:
             "PERSIST": self.persist,
             "TYPE": self.get_type,
             # Persistence commands
-            "SAVE": self.save,
-            "BGSAVE": self.bgsave,
             "BGREWRITEAOF": self.bgrewriteaof,
-            "LASTSAVE": self.lastsave,
             "CONFIG": self.config_command,
             "DEBUG": self.debug_command
         }
@@ -194,12 +191,8 @@ class CommandHandler:
             persistence_stats = self.persistence_manager.get_stats()
             info["persistence"] = {
                 "aof_enabled": int(persistence_stats.get('aof_enabled', False)),
-                "rdb_enabled": int(persistence_stats.get('rdb_enabled', False)),
-                "rdb_changes_since_last_save": persistence_stats.get('changes_since_save', 0),
-                "rdb_last_save_time": persistence_stats.get('last_rdb_save_time', 0),
                 "aof_last_sync_time": persistence_stats.get('last_aof_sync_time', 0),
-                "aof_filename": persistence_stats.get('aof_filename', ''),
-                "rdb_filename": persistence_stats.get('rdb_filename', '')
+                "aof_filename": persistence_stats.get('aof_filename', '')
             }
         
         sections = []
@@ -219,34 +212,6 @@ class CommandHandler:
         return f"{bytes_count:.1f}T"
     
     # Persistence Commands
-    def save(self, *args):
-        """Synchronous RDB save"""
-        if not self.persistence_manager:
-            return error("persistence not enabled")
-        
-        try:
-            success = self.persistence_manager.create_rdb_snapshot(self.storage)
-            if success:
-                return ok()
-            else:
-                return error("save failed")
-        except Exception as e:
-            return error(f"save error: {e}")
-    
-    def bgsave(self, *args):
-        """Background RDB save"""
-        if not self.persistence_manager:
-            return error("persistence not enabled")
-        
-        try:
-            success = self.persistence_manager.create_rdb_snapshot_background(self.storage)
-            if success:
-                return simple_string("Background saving started")
-            else:
-                return error("background save failed to start")
-        except Exception as e:
-            return error(f"bgsave error: {e}")
-    
     def bgrewriteaof(self, *args):
         """Background AOF rewrite"""
         if not self.persistence_manager:
@@ -260,17 +225,6 @@ class CommandHandler:
                 return error("background AOF rewrite failed to start")
         except Exception as e:
             return error(f"bgrewriteaof error: {e}")
-    
-    def lastsave(self, *args):
-        """Get timestamp of last successful save"""
-        if not self.persistence_manager:
-            return integer(0)
-        
-        try:
-            timestamp = self.persistence_manager.get_last_save_time()
-            return integer(timestamp)
-        except Exception as e:
-            return error(f"lastsave error: {e}")
     
     def config_command(self, *args):
         """CONFIG command for persistence settings"""
@@ -301,11 +255,8 @@ class CommandHandler:
             if self.persistence_manager:
                 try:
                     # Convert string values to appropriate types
-                    if parameter in ['aof_enabled', 'rdb_enabled', 'persistence_enabled']:
+                    if parameter in ['aof_enabled', 'persistence_enabled']:
                         value = value.lower() in ('true', '1', 'yes', 'on')
-                    elif parameter in ['rdb_save_conditions']:
-                        # This would need more complex parsing
-                        return error("rdb_save_conditions cannot be set via CONFIG SET")
                     
                     self.persistence_manager.config.set(parameter, value)
                     return ok()

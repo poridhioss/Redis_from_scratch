@@ -7,10 +7,7 @@ Handles logging of write commands to disk for data persistence and recovery.
 import os
 import time
 import threading
-import tempfile
 import shutil
-from typing import List, Optional, Dict, Any
-
 
 class AOFWriter:
     """Handles AOF (Append-Only File) operations for command logging"""
