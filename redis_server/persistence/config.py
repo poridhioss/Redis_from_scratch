@@ -32,13 +32,6 @@ class PersistenceConfig:
     def _get_default_config(self) -> Dict[str, Any]:
         """Get default persistence configuration"""
         return {
-            # AOF Configuration
-            'aof_enabled': True,
-            'aof_filename': 'appendonly.aof',
-            'aof_sync_policy': 'everysec',  # 'always', 'everysec', 'no'
-            'aof_rewrite_percentage': 100,  # Auto rewrite when AOF is 100% larger
-            'aof_rewrite_min_size': 1024 * 1024,  # Minimum AOF size for rewrite (1MB)
-            
             # RDB Configuration
             'rdb_enabled': True,
             'rdb_filename': 'dump.rdb',
@@ -64,11 +57,6 @@ class PersistenceConfig:
     
     def _validate_config(self) -> None:
         """Validate configuration values"""
-        # Validate AOF sync policy
-        valid_sync_policies = ['always', 'everysec', 'no']
-        if self._config['aof_sync_policy'] not in valid_sync_policies:
-            raise ValueError(f"Invalid AOF sync policy. Must be one of: {valid_sync_policies}")
-        
         # Validate RDB save conditions
         for condition in self._config['rdb_save_conditions']:
             if not isinstance(condition, tuple) or len(condition) != 2:
@@ -77,8 +65,6 @@ class PersistenceConfig:
                 raise ValueError("RDB save conditions must contain integer values")
         
         # Validate file paths
-        if not self._config['aof_filename']:
-            raise ValueError("AOF filename cannot be empty")
         if not self._config['rdb_filename']:
             raise ValueError("RDB filename cannot be empty")
     
@@ -102,24 +88,12 @@ class PersistenceConfig:
     
     # Convenience properties for frequently accessed settings
     @property
-    def aof_enabled(self) -> bool:
-        return self._config['aof_enabled']
-    
-    @property
     def rdb_enabled(self) -> bool:
         return self._config['rdb_enabled']
     
     @property
-    def aof_filename(self) -> str:
-        return os.path.join(self._config['data_dir'], self._config['aof_filename'])
-    
-    @property
     def rdb_filename(self) -> str:
         return os.path.join(self._config['data_dir'], self._config['rdb_filename'])
-    
-    @property
-    def aof_sync_policy(self) -> str:
-        return self._config['aof_sync_policy']
     
     @property
     def rdb_save_conditions(self) -> List[Tuple[int, int]]:
@@ -160,10 +134,6 @@ class PersistenceConfig:
                 return True
         
         return False
-    
-    def get_aof_temp_filename(self) -> str:
-        """Get temporary AOF filename for rewrite operations"""
-        return os.path.join(self.temp_dir, f"temp-rewrite-aof-{int(time.time())}.aof")
     
     def get_rdb_temp_filename(self) -> str:
         """Get temporary RDB filename for background saves"""

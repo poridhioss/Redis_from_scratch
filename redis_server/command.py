@@ -26,7 +26,6 @@ class CommandHandler:
             # Persistence commands
             "SAVE": self.save,
             "BGSAVE": self.bgsave,
-            "BGREWRITEAOF": self.bgrewriteaof,
             "LASTSAVE": self.lastsave,
             "CONFIG": self.config_command,
             "DEBUG": self.debug_command
@@ -246,20 +245,6 @@ class CommandHandler:
                 return error("background save failed to start")
         except Exception as e:
             return error(f"bgsave error: {e}")
-    
-    def bgrewriteaof(self, *args):
-        """Background AOF rewrite"""
-        if not self.persistence_manager:
-            return error("persistence not enabled")
-        
-        try:
-            success = self.persistence_manager.rewrite_aof_background(self.storage)
-            if success:
-                return simple_string("Background AOF rewrite started")
-            else:
-                return error("background AOF rewrite failed to start")
-        except Exception as e:
-            return error(f"bgrewriteaof error: {e}")
     
     def lastsave(self, *args):
         """Get timestamp of last successful save"""

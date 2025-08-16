@@ -1,20 +1,19 @@
 """
 Persistence Manager
 
-Central coordinator for all persistence operations including AOF, RDB, and recovery.
+Central coordinator for RDB persistence operations and recovery.
 """
 
 import time
 import threading
 from typing import Optional, Dict, Any
 from .config import PersistenceConfig
-from .aof import AOFWriter
 from .rdb import RDBHandler
 from .recovery import RecoveryManager
 
 
 class PersistenceManager:
-    """Main persistence manager coordinating AOF, RDB, and recovery operations"""
+    """Main persistence manager coordinating RDB and recovery operations"""
     
     def __init__(self, config: Optional[PersistenceConfig] = None):
         """
@@ -27,14 +26,12 @@ class PersistenceManager:
         self.config.ensure_directories()
         
         # Initialize components
-        self.aof_writer = None
         self.rdb_handler = None
         self.recovery_manager = None
         
         # State tracking
         self.changes_since_save = 0
         self.last_rdb_save_time = time.time()
-        self.last_aof_sync_time = time.time()
         
         # Threading
         self._lock = threading.Lock()
@@ -44,12 +41,6 @@ class PersistenceManager:
     
     def _initialize_components(self) -> None:
         """Initialize persistence components based on configuration"""
-        if self.config.aof_enabled:
-            self.aof_writer = AOFWriter(
-                self.config.aof_filename,
-                self.config.aof_sync_policy
-            )
-        
         if self.config.rdb_enabled:
             self.rdb_handler = RDBHandler(
                 self.config.rdb_filename,
@@ -58,26 +49,18 @@ class PersistenceManager:
             )
         
         self.recovery_manager = RecoveryManager(
-            self.config.aof_filename,
             self.config.rdb_filename
         )
     
     def start(self) -> None:
         """Start persistence operations"""
-        if self.aof_writer:
-            self.aof_writer.open()
-            print(f"AOF enabled: {self.config.aof_filename}")
-        
         if self.rdb_handler:
             print(f"RDB enabled: {self.config.rdb_filename}")
         
-        print(f"Persistence manager started with policy: AOF={self.config.aof_enabled}, RDB={self.config.rdb_enabled}")
+        print(f"Persistence manager started with RDB enabled: {self.config.rdb_enabled}")
     
     def stop(self) -> None:
         """Stop persistence operations"""
-        if self.aof_writer:
-            self.aof_writer.close()
-        
         print("Persistence manager stopped")
     
     def recover_data(self, data_store, command_handler=None) -> bool:
@@ -86,7 +69,7 @@ class PersistenceManager:
         
         Args:
             data_store: Data store to populate
-            command_handler: Command handler for AOF replay
+            command_handler: Command handler (not used for RDB)
             
         Returns:
             True if recovery was successful
@@ -96,20 +79,19 @@ class PersistenceManager:
             return True
         
         if self.recovery_manager:
-            return self.recovery_manager.recover_data(data_store, command_handler)
+            return self.recovery_manager.recover_data(data_store)
         
         return True
     
     def log_write_command(self, command: str, *args) -> None:
         """
-        Log a write command (for AOF)
+        Track write commands for RDB save triggers
         
         Args:
             command: Command name
             *args: Command arguments
         """
-        if self.aof_writer and self._is_write_command(command):
-            self.aof_writer.log_command(command, *args)
+        if self._is_write_command(command):
             self.changes_since_save += 1
     
     def periodic_tasks(self) -> None:
@@ -118,12 +100,6 @@ class PersistenceManager:
         Should be called from the main event loop
         """
         current_time = time.time()
-        
-        # Handle AOF sync based on policy
-        if self.aof_writer:
-            if self.aof_writer.should_sync():
-                self.aof_writer.sync_to_disk()
-                self.last_aof_sync_time = current_time
         
         # Handle automatic RDB saves
         if self.rdb_handler:
@@ -168,36 +144,6 @@ class PersistenceManager:
         
         return self.rdb_handler.create_background_snapshot(data_store)
     
-    def rewrite_aof_background(self, data_store) -> bool:
-        """
-        Start background AOF rewrite
-        
-        Args:
-            data_store: Current data store state
-            
-        Returns:
-            True if rewrite process started successfully
-        """
-        if not self.aof_writer:
-            return False
-        
-        try:
-            def background_rewrite():
-                temp_filename = self.config.get_aof_temp_filename()
-                success = self.aof_writer.rewrite_aof(data_store, temp_filename)
-                if success:
-                    print("Background AOF rewrite completed")
-                else:
-                    print("Background AOF rewrite failed")
-            
-            thread = threading.Thread(target=background_rewrite, daemon=True)
-            thread.start()
-            return True
-            
-        except Exception as e:
-            print(f"Error starting background AOF rewrite: {e}")
-            return False
-    
     def get_last_save_time(self) -> int:
         """Get timestamp of last RDB save"""
         if self.rdb_handler:
@@ -207,12 +153,9 @@ class PersistenceManager:
     def get_stats(self) -> Dict[str, Any]:
         """Get persistence statistics"""
         return {
-            'aof_enabled': self.config.aof_enabled,
             'rdb_enabled': self.config.rdb_enabled,
             'changes_since_save': self.changes_since_save,
             'last_rdb_save_time': self.get_last_save_time(),
-            'last_aof_sync_time': int(self.last_aof_sync_time),
-            'aof_filename': self.config.aof_filename if self.config.aof_enabled else None,
             'rdb_filename': self.config.rdb_filename if self.config.rdb_enabled else None,
         }
     
