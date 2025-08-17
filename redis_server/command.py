@@ -42,7 +42,6 @@ class CommandHandler:
                 self.persistence_manager.log_write_command(command, *args)
             
             return result
-            return cmd(*args)
         return error(f"Unknown command '{command}'")
 
     def ping(self, *args):
@@ -192,12 +191,9 @@ class CommandHandler:
         if self.persistence_manager:
             persistence_stats = self.persistence_manager.get_stats()
             info["persistence"] = {
-                "aof_enabled": int(persistence_stats.get('aof_enabled', False)),
                 "rdb_enabled": int(persistence_stats.get('rdb_enabled', False)),
                 "rdb_changes_since_last_save": persistence_stats.get('changes_since_save', 0),
                 "rdb_last_save_time": persistence_stats.get('last_rdb_save_time', 0),
-                "aof_last_sync_time": persistence_stats.get('last_aof_sync_time', 0),
-                "aof_filename": persistence_stats.get('aof_filename', ''),
                 "rdb_filename": persistence_stats.get('rdb_filename', '')
             }
         

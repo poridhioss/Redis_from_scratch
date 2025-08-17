@@ -9,9 +9,8 @@ This module provides persistence functionality for the Redis-like server includi
 """
 
 from .config import PersistenceConfig
-from .aof import AOFWriter
 from .rdb import RDBHandler
 from .recovery import RecoveryManager
 from .manager import PersistenceManager
 
-__all__ = ['PersistenceConfig', 'AOFWriter', 'RDBHandler', 'RecoveryManager', 'PersistenceManager']
+__all__ = ['PersistenceConfig', 'RDBHandler', 'RecoveryManager', 'PersistenceManager']
