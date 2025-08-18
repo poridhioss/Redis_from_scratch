@@ -1,4 +1,5 @@
 import time
+from collections import deque
 from .storage import DataStore
 from .response import *
 
@@ -7,7 +8,9 @@ class CommandHandler:
         self.storage = storage
         self.persistence_manager = persistence_manager
         self.command_count = 0
+        # Command mapping
         self.commands = {
+            # Basic commands
             "PING": self.ping,
             "ECHO": self.echo,
             "SET": self.set,
@@ -23,6 +26,34 @@ class CommandHandler:
             "PTTL": self.pttl,
             "PERSIST": self.persist,
             "TYPE": self.get_type,
+            # List commands
+            "LPUSH": self.lpush,
+            "RPUSH": self.rpush,
+            "LPOP": self.lpop,
+            "RPOP": self.rpop,
+            "LRANGE": self.lrange,
+            "LLEN": self.llen,
+            "LINDEX": self.lindex,
+            "LSET": self.lset,
+            # Hash commands
+            "HSET": self.hset,
+            "HGET": self.hget,
+            "HMSET": self.hmset,
+            "HMGET": self.hmget,
+            "HGETALL": self.hgetall,
+            "HDEL": self.hdel,
+            "HEXISTS": self.hexists,
+            "HLEN": self.hlen,
+            # Set commands
+            "SADD": self.sadd,
+            "SREM": self.srem,
+            "SMEMBERS": self.smembers,
+            "SISMEMBER": self.sismember,
+            "SCARD": self.scard,
+            "SINTER": self.sinter,
+            "SUNION": self.sunion,
+            "SDIFF": self.sdiff,
+            "SINTERSTORE": self.sinterstore,
             # Persistence commands
             "SAVE": self.save,
             "BGSAVE": self.bgsave,
@@ -39,11 +70,10 @@ class CommandHandler:
             result = cmd(*args)
             
             # Log write commands to AOF
-            if self.persistence_manager:
+            if self.persistence_manager and self._is_write_command(command):
                 self.persistence_manager.log_write_command(command, *args)
             
             return result
-            return cmd(*args)
         return error(f"Unknown command '{command}'")
 
     def ping(self, *args):
@@ -72,10 +102,11 @@ class CommandHandler:
         self.storage.set(key, value, expiry_time)
         return ok()
 
+    # def get(self, key) -> value -> [len(value) {value}]
     def get(self, *args):
         if len(args) != 1:
             return error("wrong number of arguments for 'get' command")
-        return bulk_string(self.storage.get(args[0])) # def get(self, key) -> value -> [len(value) {value}]
+        return bulk_string(self.storage.get(args[0])) 
 
     def delete(self, *args):
         if not args:
@@ -202,6 +233,15 @@ class CommandHandler:
                 "rdb_filename": persistence_stats.get('rdb_filename', '')
             }
         
+        # Add type statistics
+        type_stats = self.storage.get_type_stats()
+        info["types"] = {
+            "strings": type_stats['string'],
+            "lists": type_stats['list'],
+            "sets": type_stats['set'],
+            "hashes": type_stats['hash']
+        }
+        
         sections = []
         for section, data in info.items():
             sections.append(f"# {section}")
@@ -218,7 +258,602 @@ class CommandHandler:
             bytes_count /= 1024
         return f"{bytes_count:.1f}T"
     
-    # Persistence Commands
+    def _is_write_command(self, command):
+        """Check if command is a write command that should be logged"""
+        write_commands = {
+            'SET', 'DEL', 'EXPIRE', 'EXPIREAT', 'PERSIST', 'FLUSHALL',
+            'LPUSH', 'RPUSH', 'LPOP', 'RPOP', 'LSET',
+            'HSET', 'HMSET', 'HDEL',
+            'SADD', 'SREM', 'SINTERSTORE'
+        }
+        return command.upper() in write_commands
+
+    # ===== LIST COMMANDS =====
+    def lpush(self, *args):
+        """Push elements to the left (head) of the list"""
+        if len(args) < 2:
+            return error("wrong number of arguments for 'lpush' command")
+        
+        key = args[0]
+        elements = args[1:]
+        
+        try:
+            lst = self.storage.get_or_create_list(key)
+            for element in elements:
+                lst.appendleft(element)
+            return integer(len(lst))
+        except TypeError as e:
+            return error(str(e))
+
+    def rpush(self, *args):
+        """Push elements to the right (tail) of the list"""
+        if len(args) < 2:
+            return error("wrong number of arguments for 'rpush' command")
+        
+        key = args[0]
+        elements = args[1:]
+        
+        try:
+            lst = self.storage.get_or_create_list(key)
+            for element in elements:
+                lst.append(element)
+            return integer(len(lst))
+        except TypeError as e:
+            return error(str(e))
+
+    def lpop(self, *args):
+        """Pop element from the left (head) of the list"""
+        if len(args) != 1:
+            return error("wrong number of arguments for 'lpop' command")
+        
+        key = args[0]
+        
+        if not self.storage._is_key_valid(key):
+            return null_bulk_string()
+        
+        try:
+            lst = self.storage.get_or_create_list(key)
+            if not lst:
+                return null_bulk_string()
+            
+            element = lst.popleft()
+            
+            # Remove key if list becomes empty
+            if not lst:
+                self.storage.delete(key)
+            
+            return bulk_string(element)
+        except TypeError as e:
+            return error(str(e))
+
+    def rpop(self, *args):
+        """Pop element from the right (tail) of the list"""
+        if len(args) != 1:
+            return error("wrong number of arguments for 'rpop' command")
+        
+        key = args[0]
+        
+        if not self.storage._is_key_valid(key):
+            return null_bulk_string()
+        
+        try:
+            lst = self.storage.get_or_create_list(key)
+            if not lst:
+                return null_bulk_string()
+            
+            element = lst.pop()
+            
+            # Remove key if list becomes empty
+            if not lst:
+                self.storage.delete(key)
+            
+            return bulk_string(element)
+        except TypeError as e:
+            return error(str(e))
+
+    def lrange(self, *args):
+        """Get range of elements from list"""
+        if len(args) != 3:
+            return error("wrong number of arguments for 'lrange' command")
+        
+        key, start_str, stop_str = args
+        
+        try:
+            start = int(start_str)
+            stop = int(stop_str)
+        except ValueError:
+            return error("value is not an integer or out of range")
+        
+        if not self.storage._is_key_valid(key):
+            return array([])
+        
+        try:
+            lst = self.storage.get_or_create_list(key)
+            list_len = len(lst)
+            
+            # Handle negative indices. If list length = 5 and stop = -1 → becomes 4 (last element).
+            if start < 0:
+                start = max(0, list_len + start)
+            if stop < 0:
+                stop = list_len + stop
+            
+            # Clamp to valid range
+            start = max(0, start)
+            stop = min(list_len - 1, stop)
+            
+            # Check invalid ranges
+            if start > stop or start >= list_len:
+                return array([])
+            
+            # Convert deque to list for slicing
+            list_items = list(lst)
+            result = list_items[start:stop + 1]
+            
+            # Wraps entire list into RESP format and Bulk String
+            return array([bulk_string(item) for item in result])
+        except TypeError as e:
+            return error(str(e))
+
+    def llen(self, *args):
+        """Get length of list"""
+        if len(args) != 1:
+            return error("wrong number of arguments for 'llen' command")
+        
+        key = args[0]
+        
+        # Check key validity
+        if not self.storage._is_key_valid(key):
+            return integer(0)
+        
+        # Try to get the list and return the length
+        try:
+            lst = self.storage.get_or_create_list(key)
+            return integer(len(lst))
+        except TypeError as e:
+            return error(str(e))
+
+    def lindex(self, *args):
+        """Get element at index"""
+        if len(args) != 2:
+            return error("wrong number of arguments for 'lindex' command")
+        
+        key, index_str = args
+        
+        try:
+            index = int(index_str)
+        except ValueError:
+            return error("value is not an integer or out of range")
+        
+        if not self.storage._is_key_valid(key):
+            return null_bulk_string()
+        
+        try:
+            lst = self.storage.get_or_create_list(key)
+            list_len = len(lst)
+            
+            # Handle negative indices
+            if index < 0:
+                index = list_len + index
+            
+            if index < 0 or index >= list_len:
+                return null_bulk_string()
+            
+            # Convert deque to list for indexing
+            list_items = list(lst)
+            return bulk_string(list_items[index])
+        except TypeError as e:
+            return error(str(e))
+
+    def lset(self, *args):
+        """Set element at index"""
+        if len(args) != 3:
+            return error("wrong number of arguments for 'lset' command")
+        
+        key, index_str, value = args
+        
+        try:
+            index = int(index_str)
+        except ValueError:
+            return error("value is not an integer or out of range")
+        
+        if not self.storage._is_key_valid(key):
+            return error("no such key")
+        
+        try:
+            lst = self.storage.get_or_create_list(key)
+            list_len = len(lst)
+            
+            # Handle negative indices
+            if index < 0:
+                index = list_len + index
+            
+            if index < 0 or index >= list_len:
+                return error("index out of range")
+            
+            # Convert to list, modify, then replace
+            list_items = list(lst)
+            list_items[index] = value
+            
+            # Clear and repopulate deque
+            lst.clear()
+            lst.extend(list_items)
+            
+            return ok()
+        except TypeError as e:
+            return error(str(e))
+
+    # ===== HASH COMMANDS =====
+    def hset(self, *args):
+        """Set field in hash"""
+        if len(args) < 3 or len(args) % 2 == 0:
+            return error("wrong number of arguments for 'hset' command")
+        
+        key = args[0]
+        field_value_pairs = args[1:]
+        
+        try:
+            hash_obj = self.storage.get_or_create_hash(key)
+            new_fields = 0
+            
+            # Process field-value pairs
+            for i in range(0, len(field_value_pairs), 2):
+                field = field_value_pairs[i]
+                value = field_value_pairs[i + 1]
+                
+                if field not in hash_obj:
+                    new_fields += 1
+                hash_obj[field] = value
+            
+            return integer(new_fields)
+        except TypeError as e:
+            return error(str(e))
+
+    def hget(self, *args):
+        """Get field from hash"""
+        if len(args) != 2:
+            return error("wrong number of arguments for 'hget' command")
+        
+        key, field = args
+        
+        if not self.storage._is_key_valid(key):
+            return null_bulk_string()
+        
+        try:
+            hash_obj = self.storage.get_or_create_hash(key)
+            value = hash_obj.get(field)
+            return bulk_string(value) if value is not None else null_bulk_string()
+        except TypeError as e:
+            return error(str(e))
+
+    def hmset(self, *args):
+        """Set multiple fields in hash"""
+        if len(args) < 3 or len(args) % 2 == 0:
+            return error("wrong number of arguments for 'hmset' command")
+        
+        key = args[0]
+        field_value_pairs = args[1:]
+        
+        try:
+            hash_obj = self.storage.get_or_create_hash(key)
+            
+            # Process field-value pairs
+            for i in range(0, len(field_value_pairs), 2):
+                field = field_value_pairs[i]
+                value = field_value_pairs[i + 1]
+                hash_obj[field] = value
+            
+            return ok()
+        except TypeError as e:
+            return error(str(e))
+
+    def hmget(self, *args):
+        """Get multiple fields from hash"""
+        if len(args) < 2:
+            return error("wrong number of arguments for 'hmget' command")
+        
+        key = args[0]
+        fields = args[1:]
+        
+        if not self.storage._is_key_valid(key):
+            return array([null_bulk_string() for _ in fields])
+        
+        try:
+            hash_obj = self.storage.get_or_create_hash(key)
+            results = []
+            
+            for field in fields:
+                value = hash_obj.get(field)
+                results.append(bulk_string(value) if value is not None else null_bulk_string())
+            
+            return array(results)
+        except TypeError as e:
+            return error(str(e))
+
+    def hgetall(self, *args):
+        """Get all fields and values from hash"""
+        if len(args) != 1:
+            return error("wrong number of arguments for 'hgetall' command")
+        
+        key = args[0]
+        
+        if not self.storage._is_key_valid(key):
+            return array([])
+        
+        try:
+            hash_obj = self.storage.get_or_create_hash(key)
+            results = []
+            
+            for field, value in hash_obj.items():
+                results.append(bulk_string(field))
+                results.append(bulk_string(value))
+            
+            return array(results)
+        except TypeError as e:
+            return error(str(e))
+
+    def hdel(self, *args):
+        """Delete fields from hash"""
+        if len(args) < 2:
+            return error("wrong number of arguments for 'hdel' command")
+        
+        key = args[0]
+        fields = args[1:]
+        
+        if not self.storage._is_key_valid(key):
+            return integer(0)
+        
+        try:
+            hash_obj = self.storage.get_or_create_hash(key)
+            deleted_count = 0
+            
+            for field in fields:
+                if field in hash_obj:
+                    del hash_obj[field]
+                    deleted_count += 1
+            
+            # Remove key if hash becomes empty
+            if not hash_obj:
+                self.storage.delete(key)
+            
+            return integer(deleted_count)
+        except TypeError as e:
+            return error(str(e))
+
+    def hexists(self, *args):
+        """Check if field exists in hash"""
+        if len(args) != 2:
+            return error("wrong number of arguments for 'hexists' command")
+        
+        key, field = args
+        
+        if not self.storage._is_key_valid(key):
+            return integer(0)
+        
+        try:
+            hash_obj = self.storage.get_or_create_hash(key)
+            return integer(1 if field in hash_obj else 0)
+        except TypeError as e:
+            return error(str(e))
+
+    def hlen(self, *args):
+        """Get number of fields in hash"""
+        if len(args) != 1:
+            return error("wrong number of arguments for 'hlen' command")
+        
+        key = args[0]
+        
+        if not self.storage._is_key_valid(key):
+            return integer(0)
+        
+        try:
+            hash_obj = self.storage.get_or_create_hash(key)
+            return integer(len(hash_obj))
+        except TypeError as e:
+            return error(str(e))
+
+    # ===== SET COMMANDS =====
+    def sadd(self, *args):
+        """Add members to set"""
+        if len(args) < 2:
+            return error("wrong number of arguments for 'sadd' command")
+        
+        key = args[0]
+        members = args[1:]
+        
+        try:
+            set_obj = self.storage.get_or_create_set(key)
+            added_count = 0
+            
+            for member in members:
+                if member not in set_obj:
+                    set_obj.add(member)
+                    added_count += 1
+            
+            return integer(added_count)
+        except TypeError as e:
+            return error(str(e))
+
+    def srem(self, *args):
+        """Remove members from set"""
+        if len(args) < 2:
+            return error("wrong number of arguments for 'srem' command")
+        
+        key = args[0]
+        members = args[1:]
+        
+        if not self.storage._is_key_valid(key):
+            return integer(0)
+        
+        try:
+            set_obj = self.storage.get_or_create_set(key)
+            removed_count = 0
+            
+            for member in members:
+                if member in set_obj:
+                    set_obj.remove(member)
+                    removed_count += 1
+            
+            # Remove key if set becomes empty
+            if not set_obj:
+                self.storage.delete(key)
+            
+            return integer(removed_count)
+        except TypeError as e:
+            return error(str(e))
+
+    def smembers(self, *args):
+        """Get all members of set"""
+        if len(args) != 1:
+            return error("wrong number of arguments for 'smembers' command")
+        
+        key = args[0]
+        
+        if not self.storage._is_key_valid(key):
+            return array([])
+        
+        try:
+            set_obj = self.storage.get_or_create_set(key)
+            return array([bulk_string(member) for member in set_obj])
+        except TypeError as e:
+            return error(str(e))
+
+    def sismember(self, *args):
+        """Check if member exists in set"""
+        if len(args) != 2:
+            return error("wrong number of arguments for 'sismember' command")
+        
+        key, member = args
+        
+        if not self.storage._is_key_valid(key):
+            return integer(0)
+        
+        try:
+            set_obj = self.storage.get_or_create_set(key)
+            return integer(1 if member in set_obj else 0)
+        except TypeError as e:
+            return error(str(e))
+
+    def scard(self, *args):
+        """Get cardinality (size) of set"""
+        if len(args) != 1:
+            return error("wrong number of arguments for 'scard' command")
+        
+        key = args[0]
+        
+        if not self.storage._is_key_valid(key):
+            return integer(0)
+        
+        try:
+            set_obj = self.storage.get_or_create_set(key)
+            return integer(len(set_obj))
+        except TypeError as e:
+            return error(str(e))
+
+    def sinter(self, *args):
+        """Get intersection of sets"""
+        if len(args) < 1:
+            return error("wrong number of arguments for 'sinter' command")
+        
+        keys = args
+        
+        try:
+            # Start with a copy of the first set.
+            if not self.storage._is_key_valid(keys[0]):
+                return array([])
+            
+            result_set = self.storage.get_or_create_set(keys[0]).copy()
+            
+            # Intersect with other sets
+            for key in keys[1:]:
+                if not self.storage._is_key_valid(key):
+                    return array([])  # If any set doesn't exist, intersection is empty
+                
+                other_set = self.storage.get_or_create_set(key)
+                result_set &= other_set # Intersect (&=)
+            
+            return array([bulk_string(member) for member in result_set])
+        except TypeError as e:
+            return error(str(e))
+
+    def sunion(self, *args):
+        """Get union of sets"""
+        if len(args) < 1:
+            return error("wrong number of arguments for 'sunion' command")
+        
+        keys = args
+        result_set = set()
+        
+        try:
+            for key in keys:
+                if self.storage._is_key_valid(key):
+                    set_obj = self.storage.get_or_create_set(key)
+                    result_set |= set_obj # union (|=)
+            
+            return array([bulk_string(member) for member in result_set])
+        except TypeError as e:
+            return error(str(e))
+
+    def sdiff(self, *args):
+        """Get difference of sets"""
+        if len(args) < 1:
+            return error("wrong number of arguments for 'sdiff' command")
+        
+        keys = args
+        
+        try:
+            # Start with first set
+            if not self.storage._is_key_valid(keys[0]):
+                return array([])
+            
+            result_set = self.storage.get_or_create_set(keys[0]).copy()
+            
+            # Subtract other sets
+            for key in keys[1:]:
+                if self.storage._is_key_valid(key):
+                    other_set = self.storage.get_or_create_set(key)
+                    result_set -= other_set
+            
+            return array([bulk_string(member) for member in result_set])
+        except TypeError as e:
+            return error(str(e))
+
+    def sinterstore(self, *args):
+        """Store intersection of sets in destination key"""
+        if len(args) < 2:
+            return error("wrong number of arguments for 'sinterstore' command")
+        
+        destination = args[0]
+        keys = args[1:]
+        
+        try:
+            # Calculate intersection
+            if not self.storage._is_key_valid(keys[0]):
+                # If first set doesn't exist, result is empty
+                self.storage.delete(destination)
+                return integer(0)
+            
+            result_set = self.storage.get_or_create_set(keys[0]).copy()
+            
+            for key in keys[1:]:
+                if not self.storage._is_key_valid(key):
+                    # If any set doesn't exist, intersection is empty
+                    self.storage.delete(destination)
+                    return integer(0)
+                
+                other_set = self.storage.get_or_create_set(key)
+                result_set &= other_set
+            
+            # Store result
+            if result_set:
+                self.storage.set(destination, result_set)
+                return integer(len(result_set))
+            else:
+                self.storage.delete(destination)
+                return integer(0)
+        except TypeError as e:
+            return error(str(e))
+    
+    # ===== PERSISTENCE COMMANDS =====
     def save(self, *args):
         """Synchronous RDB save"""
         if not self.persistence_manager:
