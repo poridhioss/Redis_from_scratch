@@ -1,7 +1,7 @@
 import socket
 import select
 import time
-from .command import CommandHandler
+from .command_handler import CommandHandler
 from .storage import DataStore
 from .persistence import PersistenceManager, PersistenceConfig
 
