@@ -32,7 +32,10 @@ class AOFWriter:
         
         # Write commands that should be logged
         self.write_commands = {
-            'SET', 'DEL', 'EXPIRE', 'EXPIREAT', 'PERSIST', 'FLUSHALL'
+            'SET', 'DEL', 'EXPIRE', 'EXPIREAT', 'PERSIST', 'FLUSHALL',
+            'LPUSH', 'RPUSH', 'LPOP', 'RPOP', 'LSET',
+            'HSET', 'HMSET', 'HDEL',
+            'SADD', 'SREM', 'SINTERSTORE'
         }
         
         # Ensure directory exists
@@ -179,5 +182,4 @@ class AOFWriter:
             return False
         
         # For now, trigger rewrite if file is larger than min_size * 2
-        # In a real implementation, we'd compare with last rewrite size
         return current_size > min_size * 2
