@@ -1,14 +1,16 @@
 from .commands import (
     BasicCommands, ExpirationCommands, ListCommands, 
-    HashCommands, SetCommands, PersistenceCommands, InfoCommands
+    HashCommands, SetCommands, PersistenceCommands, InfoCommands, PubSubCommands
 )
 from .response import error
 
 class CommandHandler:
-    def __init__(self, storage, persistence_manager=None):
+    def __init__(self, storage, persistence_manager=None, pubsub_manager=None):
         self.storage = storage
         self.persistence_manager = persistence_manager
+        self.pubsub_manager = pubsub_manager
         self.command_count = 0
+        self.current_client = None  # Track current client for pub/sub commands
         
         # Initialize command handlers
         self.basic_commands = BasicCommands(storage, persistence_manager)
@@ -18,6 +20,7 @@ class CommandHandler:
         self.set_commands = SetCommands(storage, persistence_manager)
         self.persistence_commands = PersistenceCommands(storage, persistence_manager)
         self.info_commands = InfoCommands(storage, persistence_manager, self.command_count)
+        self.pubsub_commands = PubSubCommands(storage, persistence_manager, pubsub_manager)
         
         # Command registry mapping commands to their handlers
         self.commands = {
@@ -80,10 +83,21 @@ class CommandHandler:
             
             # Info commands
             "INFO": self.info_commands.info,
+            
+            # Pub/Sub commands
+            "SUBSCRIBE": self.pubsub_commands.subscribe,
+            "UNSUBSCRIBE": self.pubsub_commands.unsubscribe, 
+            "PUBLISH": self.pubsub_commands.publish,
+            "PUBSUB": self.pubsub_commands.pubsub,
         }
 
-    def execute(self, command, *args):
+    def execute(self, command, *args, client=None):
         self.command_count += 1
+        
+        # Set current client context for pub/sub commands
+        if client is not None:
+            self.current_client = client
+            self.pubsub_commands.set_current_client(client)
         
         # Update command count in info handler
         self.info_commands.update_command_count(self.command_count)

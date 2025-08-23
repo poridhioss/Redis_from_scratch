@@ -4,6 +4,7 @@ import time
 from .command_handler import CommandHandler
 from .storage import DataStore
 from .persistence import PersistenceManager, PersistenceConfig
+from .pubsub import PubSubManager
 
 class RedisServer:
     def __init__(self, host='localhost', port=6379, persistence_config=None):
@@ -14,12 +15,15 @@ class RedisServer:
         self.clients = {}
         self.storage = DataStore()
         
+        # Initialize pub/sub manager
+        self.pubsub_manager = PubSubManager()
+        
         # Initialize persistence
         self.persistence_config = persistence_config or PersistenceConfig() # default or custom
         self.persistence_manager = PersistenceManager(self.persistence_config)
         
-        # Command handler needs reference to persistence manager for logging
-        self.command_handler = CommandHandler(self.storage, self.persistence_manager)
+        # Command handler needs reference to persistence manager and pubsub manager
+        self.command_handler = CommandHandler(self.storage, self.persistence_manager, self.pubsub_manager)
         
         self.last_cleanup_time = time.time()
         self.last_persistence_time = time.time()
@@ -122,7 +126,7 @@ class RedisServer:
             command, buffer = buffer.split(b"\r\n", 1)
             if command:
                 try:
-                    response = self._process_command(command.decode('utf-8'))
+                    response = self._process_command(command.decode('utf-8'), client)
                     client.send(response)
                 except Exception as e:
                     print(f"Error processing command: {e}")
@@ -131,11 +135,11 @@ class RedisServer:
         
         self.clients[client]["buffer"] = buffer
 
-    def _process_command(self, command_line):
+    def _process_command(self, command_line, client=None):
         parts = command_line.strip().split()
         if not parts:
             return b"-ERR empty command\r\n"
-        return self.command_handler.execute(parts[0], *parts[1:])
+        return self.command_handler.execute(parts[0], *parts[1:], client=client)
 
     def _background_cleanup(self):
         """Perform background cleanup of expired keys"""
@@ -150,6 +154,10 @@ class RedisServer:
         try:
             addr = self.clients.get(client, {}).get("addr", "unknown")
             print(f"Client {addr} disconnected")
+            
+            # Clean up pub/sub subscriptions
+            self.pubsub_manager.cleanup_client(client)
+            
             client.close()
             self.clients.pop(client, None)
         except Exception as e:

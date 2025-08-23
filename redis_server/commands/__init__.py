@@ -5,6 +5,7 @@ from .hash import HashCommands
 from .set import SetCommands
 from .persistence import PersistenceCommands
 from .info import InfoCommands
+from .pubsub import PubSubCommands
 
 __all__ = [
     'BasicCommands',
@@ -13,5 +14,6 @@ __all__ = [
     'HashCommands',
     'SetCommands',
     'PersistenceCommands',
-    'InfoCommands'
+    'InfoCommands',
+    'PubSubCommands'
 ]
