@@ -87,17 +87,26 @@ class PubSubCommands(BaseCommandHandler):
         
         return b"".join(responses)
     
-    def publish(self, channel, message):
+    def publish(self, channel, *message_parts):
         """
         PUBLISH channel message
         Publish a message to a channel.
         Returns the number of clients that received the message.
         """
-        if not channel or message is None:
+        if not channel or not message_parts:
             return error("wrong number of arguments for 'publish' command")
         
         if not self.pubsub_manager:
             return error("pub/sub not available")
+        
+        # Join all message parts to handle multi-word messages
+        message = " ".join(message_parts)
+        
+        # Remove surrounding quotes if present
+        if len(message) >= 2 and message.startswith('"') and message.endswith('"'):
+            message = message[1:-1]
+        elif len(message) >= 2 and message.startswith("'") and message.endswith("'"):
+            message = message[1:-1]
         
         # Publish message and get subscriber count
         subscriber_count = self.pubsub_manager.publish(channel, message)
